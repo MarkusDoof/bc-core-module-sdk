@@ -79,10 +79,15 @@ struct bc_module_relay_t
 
 //! @endcond
 
-//! @brief Initialize BigClown Relay Module
+//! @brief Initialize BigClown Relay Module On Default adress
 //! @param[in] self Instance
 
-bool bc_module_relay_init(bc_module_relay_t *self);
+bool bc_module_primary_relay_init(bc_module_relay_t *self);
+
+//! @brief Initialize BigClown Relay Module On alternate adress
+//! @param[in] self Instance
+
+bool bc_module_secondary_relay_init(bc_module_relay_t *self);
 
 //! @brief Set relay to specified state
 //! @param[in] self Instance

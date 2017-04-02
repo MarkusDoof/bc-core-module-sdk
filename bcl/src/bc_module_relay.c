@@ -13,7 +13,7 @@ static void _bc_module_relay_task(void *param);
 #define BC_MODULE_RELAY_POLARITY_NONE   ((1 << 6) | (1 << 4))
 
 
-static bool _bc_module_relay_hardware_init(bc_module_relay_t *self)
+static bool _bc_module_primary_relay_hardware_init(bc_module_relay_t *self)
 {
     // Init i2C expander driver
     if (!bc_tca9534a_init(&self->_tca9534a, BC_I2C_I2C0, BC_MODULE_RELAY_I2C_ADDRESS_DEFAULT))
@@ -30,13 +30,37 @@ static bool _bc_module_relay_hardware_init(bc_module_relay_t *self)
     return true;
 }
 
-bool bc_module_relay_init(bc_module_relay_t *self)
+static bool _bc_module_secondary_relay_hardware_init(bc_module_relay_t *self)
+{
+    // Init i2C expander driver
+    if (!bc_tca9534a_init(&self->_tca9534a, BC_I2C_I2C0, BC_MODULE_RELAY_I2C_ADDRESS_ALTERNATE))
+    {
+        return false;
+    }
+    // De-energize bistable relay coil - turn off
+    bc_tca9534a_write_port(&(self->_tca9534a), BC_MODULE_RELAY_POLARITY_NONE);
+    // Enable outputs
+    bc_tca9534a_set_port_direction(&self->_tca9534a, 0x00); // inverted: 0 = output
+    // Relay is bi-stable, in the begining we don't know the default state
+    self->_relay_state = BC_MODULE_RELAY_STATE_UNKNOWN;
+    
+    return true;
+}
+
+
+bool bc_module_primary_relay_init(bc_module_relay_t *self)
 {
     // Init instance, set state machine initial state
     memset(self, 0, sizeof(*self));
-    return _bc_module_relay_hardware_init(self);
+    return _bc_module_primary_relay_hardware_init(self);
 }
 
+bool bc_module_secondary_relay_init(bc_module_relay_t *self)
+{
+    // Init instance, set state machine initial state
+    memset(self, 0, sizeof(*self));
+    return _bc_module_secondary_relay_hardware_init(self);
+}
 
 static void bc_module_relay_scheduler_unregister(bc_module_relay_t *self)
 {
@@ -101,7 +125,12 @@ static bc_tick_t bc_module_relay_state_machine(bc_module_relay_t *self, bc_tick_
                 if (self->_error)
                 {
                     // Try to initialize relay module again
-                    if (_bc_module_relay_hardware_init(self))
+                    if (_bc_module_primary_relay_hardware_init(self))
+                    {
+                        self->_error = false;
+                    }
+                    // Try to initialize relay module again
+                    if (_bc_module_secondary_relay_hardware_init(self))
                     {
                         self->_error = false;
                     }
