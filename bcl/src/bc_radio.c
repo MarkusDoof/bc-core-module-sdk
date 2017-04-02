@@ -3,6 +3,9 @@
 #include <bc_device_id.h>
 #include <bc_scheduler.h>
 #include <bc_spirit1.h>
+#include <bc_eeprom.h>
+
+#define BC_RADIO_EEPROM_PEER_DEVICE_ADDRESS 0x00
 
 typedef enum
 {
@@ -12,8 +15,10 @@ typedef enum
     BC_RADIO_IRRIGATION_PRIMARY_SWITCH_ON,
     BC_RADIO_IRRIGATION_PRIMARY_SWITCH_OFF,
     BC_RADIO_IRRIGATION_SECONDARY_SWITCH_ON,
-    BC_RADIO_IRRIGATION_SECONDARY_SWITCH_OFF
-
+    BC_RADIO_IRRIGATION_SECONDARY_SWITCH_OFF,
+    BC_RADIO_HEADER_PUB_HUMIDITY,
+    BC_RADIO_HEADER_PUB_LUX_METER,
+    BC_RADIO_HEADER_PUB_BAROMETER,
 } bc_radio_header_t;
 
 typedef enum
@@ -53,12 +58,20 @@ static struct
 static void _bc_radio_task(void *param);
 static void _bc_radio_spirit1_event_handler(bc_spirit1_event_t event, void *event_param);
 
+/*
 __attribute__((weak)) void bc_radio_on_push_button(uint16_t *event_count) { (void) event_count; }
 __attribute__((weak)) void bc_radio_on_thermometer(float *temperature) { (void) temperature; }
+*/
 __attribute__((weak)) void bc_radio_on_irrigation_primary_switch_on(){ }
 __attribute__((weak)) void bc_radio_on_irrigation_primary_switch_off() { }
 __attribute__((weak)) void bc_radio_on_irrigation_secondary_switch_on(){ }
 __attribute__((weak)) void bc_radio_on_irrigation_secondary_switch_off() { }
+__attribute__((weak)) void bc_radio_on_push_button(uint32_t *peer_device_address, uint16_t *event_count) { (void) peer_device_address; (void) event_count; }
+__attribute__((weak)) void bc_radio_on_thermometer(uint32_t *peer_device_address, uint8_t *i2c, float *temperature) { (void) peer_device_address; (void) i2c; (void) temperature; }
+__attribute__((weak)) void bc_radio_on_humidity(uint32_t *peer_device_address, uint8_t *i2c, float *percentage) { (void) peer_device_address; (void) i2c; (void) percentage; }
+__attribute__((weak)) void bc_radio_on_lux_meter(uint32_t *peer_device_address, uint8_t *i2c, float *illuminance) { (void) peer_device_address; (void) i2c; (void) illuminance; }
+__attribute__((weak)) void bc_radio_on_barometer(uint32_t *peer_device_address, uint8_t *i2c, float *pressure, float *altitude) { (void) peer_device_address; (void) i2c; (void) pressure; (void) altitude; }
+>>>>>>> bigclownlabs/master
 
 void bc_radio_init(void)
 {
@@ -71,6 +84,8 @@ void bc_radio_init(void)
 
     bc_spirit1_init();
     bc_spirit1_set_event_handler(_bc_radio_spirit1_event_handler, NULL);
+
+    bc_eeprom_read(BC_RADIO_EEPROM_PEER_DEVICE_ADDRESS, &_bc_radio.peer_device_address, sizeof(_bc_radio.peer_device_address));
 
     _bc_radio.task_id = bc_scheduler_register(_bc_radio_task, NULL, BC_TICK_INFINITY);
 }
@@ -115,11 +130,10 @@ void bc_radio_enrollment_stop(void)
 bool bc_radio_pub_push_button(uint16_t *event_count)
 {
     uint8_t buffer[1 + sizeof(*event_count)];
-    
     buffer[0] = BC_RADIO_HEADER_PUB_PUSH_BUTTON;
-    
+
     memcpy(&buffer[1], event_count, sizeof(*event_count));
-    
+
     if (!bc_queue_put(&_bc_radio.pub_queue, buffer, sizeof(buffer)))
     {
         return false;
@@ -152,12 +166,23 @@ bool bc_radio_pub_primary_irrigation_switch_on()
 {
     uint8_t buffer[1];
     buffer[0] = BC_RADIO_IRRIGATION_PRIMARY_SWITCH_ON;
-    
+    bc_scheduler_plan_now(_bc_radio.task_id);
+
+    return true;
+}
+
+bool bc_radio_pub_thermometer(uint8_t i2c, float *temperature)
+{
+    uint8_t buffer[2 + sizeof(*temperature)];
+
+    buffer[0] = BC_RADIO_HEADER_PUB_THERMOMETER;
+    buffer[1] = i2c;
+
+    memcpy(&buffer[2], temperature, sizeof(*temperature));
     if (!bc_queue_put(&_bc_radio.pub_queue, buffer, sizeof(buffer)))
     {
         return false;
     }
-    
     bc_scheduler_plan_now(_bc_radio.task_id);
     
     return true;
@@ -167,12 +192,23 @@ bool bc_radio_pub_primary_irrigation_switch_off()
 {
     uint8_t buffer[1];
     buffer[0] = BC_RADIO_IRRIGATION_PRIMARY_SWITCH_OFF;
-    
+    bc_scheduler_plan_now(_bc_radio.task_id);
+
+    return true;
+}
+
+bool bc_radio_pub_humidity(uint8_t i2c, float *percentage)
+{
+    uint8_t buffer[2 + sizeof(*percentage)];
+
+    buffer[0] = BC_RADIO_HEADER_PUB_HUMIDITY;
+    buffer[1] = i2c;
+
+    memcpy(&buffer[2], percentage, sizeof(*percentage));
     if (!bc_queue_put(&_bc_radio.pub_queue, buffer, sizeof(buffer)))
     {
         return false;
     }
-    
     bc_scheduler_plan_now(_bc_radio.task_id);
     
     return true;
@@ -182,12 +218,23 @@ bool bc_radio_pub_secondary_irrigation_switch_on()
 {
     uint8_t buffer[1];
     buffer[0] = BC_RADIO_IRRIGATION_SECONDARY_SWITCH_ON;
-    
+    bc_scheduler_plan_now(_bc_radio.task_id);
+
+    return true;
+}
+
+bool bc_radio_pub_luminosity(uint8_t i2c, float *lux)
+{
+    uint8_t buffer[2 + sizeof(*lux)];
+
+    buffer[0] = BC_RADIO_HEADER_PUB_LUX_METER;
+    buffer[1] = i2c;
+
+    memcpy(&buffer[2], lux, sizeof(*lux));
     if (!bc_queue_put(&_bc_radio.pub_queue, buffer, sizeof(buffer)))
     {
         return false;
     }
-    
     bc_scheduler_plan_now(_bc_radio.task_id);
     
     return true;
@@ -197,18 +244,28 @@ bool bc_radio_pub_secondary_irrigation_switch_off()
 {
     uint8_t buffer[1];
     buffer[0] = BC_RADIO_IRRIGATION_SECONDARY_SWITCH_OFF;
-    
+    bc_scheduler_plan_now(_bc_radio.task_id);
+
+    return true;
+}
+
+bool bc_radio_pub_barometer(uint8_t i2c, float *pascal, float *meter)
+{
+    uint8_t buffer[2 + sizeof(*pascal) + sizeof(*meter)];
+
+    buffer[0] = BC_RADIO_HEADER_PUB_BAROMETER;
+    buffer[1] = i2c;
+
+    memcpy(&buffer[2], pascal, sizeof(*pascal));
+    memcpy(&buffer[2 + sizeof(*pascal)], meter, sizeof(*meter));
     if (!bc_queue_put(&_bc_radio.pub_queue, buffer, sizeof(buffer)))
     {
         return false;
     }
-    
     bc_scheduler_plan_now(_bc_radio.task_id);
     
     return true;
 }
-
-
 
 static void _bc_radio_task(void *param)
 {
@@ -262,15 +319,41 @@ static void _bc_radio_task(void *param)
 
             memcpy(&event_count, &queue_item_buffer[1], sizeof(event_count));
 
-            bc_radio_on_push_button(&event_count);
+            bc_radio_on_push_button(&_bc_radio.peer_device_address, &event_count);
         }
         else if (queue_item_buffer[0] == BC_RADIO_HEADER_PUB_THERMOMETER)
         {
             float temperature;
-            
-            memcpy(&temperature, &queue_item_buffer[1], sizeof(temperature));
-            
-            bc_radio_on_thermometer(&temperature);
+
+            memcpy(&temperature, &queue_item_buffer[2], sizeof(temperature));
+
+            bc_radio_on_thermometer(&_bc_radio.peer_device_address, &queue_item_buffer[1], &temperature);
+        }
+        else if (queue_item_buffer[0] == BC_RADIO_HEADER_PUB_HUMIDITY)
+        {
+            float percentage;
+
+            memcpy(&percentage, &queue_item_buffer[2], sizeof(percentage));
+
+            bc_radio_on_humidity(&_bc_radio.peer_device_address, &queue_item_buffer[1], &percentage);
+        }
+        else if (queue_item_buffer[0] == BC_RADIO_HEADER_PUB_LUX_METER)
+        {
+            float lux;
+
+            memcpy(&lux, &queue_item_buffer[2], sizeof(lux));
+
+            bc_radio_on_lux_meter(&_bc_radio.peer_device_address, &queue_item_buffer[1], &lux);
+        }
+        else if (queue_item_buffer[0] == BC_RADIO_HEADER_PUB_BAROMETER)
+        {
+            float pascal;
+            float meter;
+
+            memcpy(&pascal, &queue_item_buffer[2], sizeof(pascal));
+            memcpy(&meter, &queue_item_buffer[2 + sizeof(pascal)], sizeof(meter));
+
+            bc_radio_on_barometer(&_bc_radio.peer_device_address, &queue_item_buffer[1], &pascal, &meter);
         }
         else if (queue_item_buffer[0] == BC_RADIO_IRRIGATION_PRIMARY_SWITCH_ON)
         {
@@ -353,7 +436,7 @@ static void _bc_radio_spirit1_event_handler(bc_spirit1_event_t event, void *even
         {
             uint8_t *buffer = bc_spirit1_get_rx_buffer();
 
-            uint16_t device_address;
+            uint32_t device_address;
 
             device_address = (uint32_t) buffer[0];
             device_address |= (uint32_t) buffer[1] << 8;
@@ -366,6 +449,8 @@ static void _bc_radio_spirit1_event_handler(bc_spirit1_event_t event, void *even
                 _bc_radio.peer_device_address = device_address;
                 _bc_radio.peer_message_id_synced = false;
                 _bc_radio.enrollment_mode = false;
+
+                bc_eeprom_write(BC_RADIO_EEPROM_PEER_DEVICE_ADDRESS, &_bc_radio.peer_device_address, sizeof(_bc_radio.peer_device_address));
 
                 if (_bc_radio.event_handler != NULL)
                 {

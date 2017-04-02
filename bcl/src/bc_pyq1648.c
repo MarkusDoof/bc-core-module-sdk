@@ -1,6 +1,7 @@
 #include <bc_pyq1648.h>
 #include <bc_irq.h>
 #include <bc_gpio.h>
+#include <bc_module_core.h>
 #include <stm32l0xx.h>
 
 #define BC_PYQ1648_BPF 0x00
@@ -106,6 +107,7 @@ static inline void _bc_pyq1648_msp_init(bc_gpio_channel_t gpio_channel_serin, bc
     // Initialize DirectLink (DL) GPIO pin
     bc_gpio_init(gpio_channel_dl);
     bc_gpio_set_mode(gpio_channel_dl, BC_GPIO_MODE_INPUT);
+    bc_gpio_set_pull(gpio_channel_dl, BC_GPIO_PULL_DOWN);
 }
 
 static void _bc_pyq1648_clear_event(bc_pyq1648_t *self)
@@ -121,6 +123,9 @@ static inline void _bc_pyq1648_dev_init(bc_pyq1648_t *self)
     // Disable interrupts
     bc_irq_disable();
 
+    // Enable PLL
+    bc_module_core_pll_enable();
+
     // Load desired event unit configuration
     uint32_t regval = self->_config;
     uint32_t regmask = 0x1000000;
@@ -130,7 +135,7 @@ static inline void _bc_pyq1648_dev_init(bc_pyq1648_t *self)
     uint32_t bsrr_mask[2] =
     {
         [0] = _pyq1648_reset_mask[self->_gpio_channel_serin],
-        [1] = _pyq1648_set_mask[self->_gpio_channel_serin] 
+        [1] = _pyq1648_set_mask[self->_gpio_channel_serin]
     };
     GPIO_TypeDef *GPIOx = _pyq1648_gpiox_table[self->_gpio_channel_serin];
     volatile uint32_t *GPIOx_BSRR = &GPIOx->BSRR;
@@ -148,7 +153,14 @@ static inline void _bc_pyq1648_dev_init(bc_pyq1648_t *self)
         __asm("nop");
         __asm("nop");
         __asm("nop");
+        __asm("nop");
+        __asm("nop");
+        __asm("nop");
+        __asm("nop");
+        __asm("nop");
         *GPIOx_BSRR = bsrr_mask[1];
+        __asm("nop");
+        __asm("nop");
         __asm("nop");
         *GPIOx_BSRR = bsrr_mask[next_bit];
 
@@ -156,6 +168,9 @@ static inline void _bc_pyq1648_dev_init(bc_pyq1648_t *self)
     }
 
     bc_gpio_set_output(self->_gpio_channel_serin, false);
+
+    // Disable PLL
+    bc_module_core_pll_disable();
 
     // Enable interrupts
     bc_irq_enable();
@@ -167,7 +182,7 @@ static inline void _bc_pyq1648_delay_100us()
     TIM6->PSC = 0;
 
     // Set auto-reload register - period 100 us
-    TIM6->ARR = 1500;
+    TIM6->ARR = 3000;
 
     // Generate update of registers
     TIM6->EGR = TIM_EGR_UG;
@@ -192,8 +207,6 @@ start:
     {
         case BC_PYQ1648_STATE_ERROR:
         {
-            self->_event_valid = false;
-
             if (self->_event_handler != NULL)
             {
                 self->_event_handler(self, BC_PYQ1648_EVENT_ERROR, self->_event_param);
@@ -259,7 +272,6 @@ start:
                 {
                     self->_event_handler(self, BC_PYQ1648_EVENT_MOTION, self->_event_param);
                     self->_aware_time = tick_now + self->_blank_period;
-                    self->_event_valid = true;
                 }
                 _bc_pyq1648_clear_event(self);
             }

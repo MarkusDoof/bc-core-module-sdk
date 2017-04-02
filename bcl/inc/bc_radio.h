@@ -24,10 +24,6 @@ void bc_radio_enrollment_start(void);
 
 void bc_radio_enrollment_stop(void);
 
-bool bc_radio_pub_push_button(uint16_t *);
-
-bool bc_radio_pub_thermometer(float*);
-
 bool bc_radio_pub_primary_irrigation_switch_on();
 
 bool bc_radio_pub_primary_irrigation_switch_off();
@@ -35,5 +31,15 @@ bool bc_radio_pub_primary_irrigation_switch_off();
 bool bc_radio_pub_secondary_irrigation_switch_on();
 
 bool bc_radio_pub_secondary_irrigation_switch_off();
+
+bool bc_radio_pub_push_button(uint16_t *event_count);
+
+bool bc_radio_pub_thermometer(uint8_t i2c, float *temperature);
+
+bool bc_radio_pub_humidity(uint8_t i2c, float *percentage);
+
+bool bc_radio_pub_luminosity(uint8_t i2c, float *lux);
+
+bool bc_radio_pub_barometer(uint8_t i2c, float *pascal, float *meter);
 
 #endif // _BC_RADIO_H
